@@ -2,3 +2,7 @@
 .venv
 *.pyc
 *.sqlite
+client_secret.json
+token.json
+*sqlite-shm
+*sqlite-wal

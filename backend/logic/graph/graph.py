@@ -12,48 +12,96 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 
-from logic.graph.state import AgentState
+from logic.graph.state import AgentState, saver
 from logic.agents.calander_agent import calendar_worker_node
+from logic.agents.ochestrator import orchestrator_node, orchestrator_router
+from logic.agents.email_agent import email_worker_node
+from logic.agents.weather_agent import weather_worker_node
+from langgraph.types import Command
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-# Sqlite checkpointer
-conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-saver = SqliteSaver(conn)
-
-
-# Build the graph
-graph_builder = StateGraph(AgentState)  # type: ignore , lol you can just ignore like this?? the error gone
+# ==========================================
+# Master Graph
+# ==========================================
+graph_builder = StateGraph(AgentState)  # type: ignore
 
 # Add nodes
+graph_builder.add_node("orchestrator", orchestrator_node)
 graph_builder.add_node("calendar_worker", calendar_worker_node)
+graph_builder.add_node("email_worker", email_worker_node)
+graph_builder.add_node("weather_worker", weather_worker_node)
 
-# Add edges
-graph_builder.set_entry_point("calendar_worker")
-graph_builder.add_edge("calendar_worker", END)
+# Entry point: always start at the orchestrator
+graph_builder.set_entry_point("orchestrator")
+
+# Conditional edges: orchestrator decides where to go
+graph_builder.add_conditional_edges(
+    "orchestrator",
+    orchestrator_router,
+    {
+        "calendar_worker": "calendar_worker",
+        "email_worker": "email_worker",
+        "weather_worker": "weather_worker",
+        "__end__": END,
+    }
+)
+
+# After the calendar worker finishes, always route back to the orchestrator
+# The orchestrator will see the AI response and route to END
+graph_builder.add_edge("calendar_worker", "orchestrator")
+graph_builder.add_edge("email_worker", "orchestrator")
+graph_builder.add_edge("weather_worker", "orchestrator")
 
 # Compile the graph
 graph = graph_builder.compile(checkpointer=saver)
 
 
-
 if __name__ == "__main__":
-    # You can test the agent locally without running the whole graph!
-    test_state = {
-        "messages": [HumanMessage(content="create a reminder tmr on my calander to by an apple")]
-    }
-    config: RunnableConfig = {
-        "configurable": {
-            "thread_id": "test-thread-1",
-            "user_id": "test-user-1"
-        }
-    }
+    from langchain_core.messages import HumanMessage
 
-    result = graph.invoke(
-        test_state,
-        config=config
-    )
+    print("\n==========================================")
+    print("Welcome to your Multi-Agent Terminal!")
+    print("==========================================\n")
 
-    print("Result:", result["messages"][-1].content)
+    config: RunnableConfig = {"configurable": {"thread_id": "master_thread_1"}}
+    user_input = input("You: ").strip()
+
+    while True:
+        if user_input.lower() in ["quit", "exit", "q"]:
+            print("Goodbye!")
+            break
+
+        print(f"\nYou: {user_input}\n")
+
+        # Invoke the master graph with the user's message
+        response = graph.invoke(
+            {"messages": [HumanMessage(content=user_input)]},
+            config=config
+        )
+
+        # Print the AI's reply
+        if response and "messages" in response:
+            last_ai = response["messages"][-1]
+            print(f"🤖 Agent: {last_ai.content}\n")
+
+        # ==============================
+        # Check if we hit an interrupt
+        # ==============================
+        snapshot = graph.get_state(config)
+        if snapshot.next:
+            print("💥 [INTERRUPT]: The agent wants to execute a tool. Approve or Reject?")
+            approval = input("Your decision (approve/reject): ").strip().lower()
+
+            decision_type = "approve" if approval == "approve" else "reject"
+            resume_response = graph.invoke(
+                Command(resume={"decisions": [{"type": decision_type}]}),
+                config=config
+            )
+            if resume_response and "messages" in resume_response:
+                print(f"🤖 Agent: {resume_response['messages'][-1].content}\n")
+
+        # Get next user input
+        user_input = input("You: ").strip()

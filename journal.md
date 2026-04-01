@@ -1,3 +1,5 @@
+# 1/4/26
+
 I will have an ochestrator and worker agents. These agetns will be reAct agents from langcahin which will use the different tools i assign to them.
 
 This will be a full stack
@@ -10,6 +12,7 @@ front end- react-vite
 
 - I will have some human in the loop functions as well yah
 - I will likely create some standard flow with some agent involved.
+- All the nodes must return the states yah, whihc contains teh config and state defined...
 
 # Features?
 
@@ -36,3 +39,40 @@ front end- react-vite
 - Then the worker agent will run
 - It will then route back to ochestrator agent..
 - Finishes with end node hor...
+
+# in each agent file
+
+- You have your tools
+- init of the create_agent
+- Worker node which is placed in the graph flow
+
+## Done?
+
+- I think the calander agent is done for now
+- Added delete, conflict check, create, get events
+
+## What is the ochestrator tiny
+
+- We will have tools to delegate tasks to the correct agent yah
+
+## To end node
+
+orchestrator_node runs
+↓
+Last message is AIMessage? (Python check, instant) or just a dict returned
+├── YES → next_agent = "end" (NO LLM call)
+└── NO → call \_classify_intent(messages)
+↓
+LLM invoked once
+Returns "calendar_worker" / "email_worker" / "end"
+↓
+next_agent = LLM decision
+
+        ↓
+
+orchestrator_router reads next_agent from state
+├── "calendar_worker" → route to calendar_worker node
+├── "email_worker" → route to email_worker node
+└── anything else → "**end**"
+
+- Note that create_agent will return a dict with the key "messages" which contains the AI response AIMessage automatically yah
