@@ -3,6 +3,8 @@
 *.pyc
 *.sqlite
 client_secret.json
+gmail_token.json
+*.json
 token.json
 *sqlite-shm
 *sqlite-wal
