@@ -24,47 +24,97 @@ logger = logging.getLogger(__name__)
 # These must match the node names registered in graph.py!
 SUPPORTED_AGENTS = ["calendar_worker", "email_worker", "weather_worker"]
 
+def _detect_last_active_agent(messages: list[BaseMessage]) -> str | None:
+    """
+    Look backwards through message history to find which agent was
+    most recently active, by checking which node's AIMessage appears last.
+    We infer this from the conversation pattern:
+    every AIMessage after the first HumanMessage was produced by a worker.
+    We track this via the `name` attribute if present, or fall back to None.
+    """
+    for m in reversed(messages):
+        if isinstance(m, AIMessage):
+            # LangGraph sets `name` on AIMessages to the node that produced them
+            if hasattr(m, "name") and m.name in SUPPORTED_AGENTS:
+                return m.name
+    return None
+
+
+# Short replies that are clearly just confirmations/continuations, not new tasks
+_CONTINUATION_WORDS = {
+    "yes", "no", "ok", "okay", "sure", "nope", "yep", "yeah",
+    "proceed", "go ahead", "send it", "confirm", "cancel", "done",
+    "fine", "alright", "correct", "right", "wrong", "good", "great",
+}
+
+def _is_short_continuation(text: str) -> bool:
+    """Return True if the message looks like a yes/no/confirmation reply."""
+    words = text.strip().lower().split()
+    if len(words) <= 3:
+        normalized = " ".join(words)
+        return any(word in normalized for word in _CONTINUATION_WORDS)
+    return False
+
+
 def _classify_intent(messages: list[BaseMessage]) -> str:
     """
-    Ask the LLM to classify the last user message into one of the
-    supported agent categories or 'end' if the task is complete.
+    Route the latest message to the correct agent.
+
+    Priority order:
+    1. If the message is a short yes/no/confirmation → skip LLM, reuse last active agent
+    2. Otherwise → call LLM with conversation history as context
     """
-    # Pull the last human message
+    if not messages:
+        return "end"
+
     last_human = next(
         (m.content for m in reversed(messages) if isinstance(m, HumanMessage)),
         None
     )
-
     if not last_human:
         return "end"
 
-    routing_prompt = f"""You are a task router. Based on the user's request, pick the most appropriate agent.
+    # ── Heuristic: short continuation replies ────────────────────────────────
+    if isinstance(last_human, str) and _is_short_continuation(last_human):
+        last_agent = _detect_last_active_agent(messages)
+        if last_agent:
+            print(f"[Orchestrator] ⚡ Short reply detected — continuing with '{last_agent}'")
+            return last_agent
+        # No prior agent found, fall through to LLM routing
+
+    # ── LLM routing with conversation history ────────────────────────────────
+    recent = messages[-6:]
+    history_lines = []
+    for m in recent:
+        role = "User" if isinstance(m, HumanMessage) else "Assistant"
+        content = (m.content or "")[:300]
+        history_lines.append(f"{role}: {content}")
+    history_text = "\n".join(history_lines)
+
+    routing_prompt = f"""You are a strict task router. Assign the latest user message to the most appropriate agent.
 
 Available agents:
-- calendar_worker: Use for anything related to scheduling events, reminders, viewing calendar, deleting events, or checking conflicts.
-- email_worker: Use for anything related to reading, sending, or managing emails.
-- weather_worker: Use for anything related to weather information.
+- calendar_worker: Scheduling, events, reminders, calendar, conflicts.
+- email_worker: Reading, searching, composing, sending, replying to emails.
+- weather_worker: Current weather, forecasts, UV, air quality.
 
-User request: "{last_human}"
+--- Conversation history ---
+{history_text}
+----------------------------
 
-Rules:
-1. Respond with ONLY one of the following:
-   - calendar_worker
-   - email_worker
-   - weather_worker
-   - end
+Latest user message: "{last_human}"
 
-2. Do NOT explain your choice.
-3. Do NOT ask questions.
-4. If the request is unclear or does not match any agent, respond with 'end'.
-
+RULES:
+1. Output ONLY ONE of: calendar_worker | email_worker | weather_worker | end
+2. No explanation. No questions.
+3. Follow-ups ("make it friendlier", "change the subject", "add more") → same agent as previous turn.
+4. Use 'end' ONLY if the request is completely unrelated to all agents.
 """
 
     response = llm_model.invoke(routing_prompt)
     decision = response.content.strip().lower()
     print(f"[Orchestrator] LLM routing decision raw: '{decision}'")
 
-    # Guard: only return known agents, else fall back to "end"
     for agent in SUPPORTED_AGENTS:
         if agent in decision:
             return agent
@@ -79,6 +129,7 @@ def orchestrator_node(state: dict) -> dict:
     """
     messages = state["messages"]
     last_message = messages[-1]
+    logger.info(f"🎯 Orchestrator received message: '{last_message.content[:100]}' (type: {type(last_message).__name__})")
 
     # If the last message is from a worker (AI), the task is done — route to END
     if isinstance(last_message, AIMessage):

@@ -76,3 +76,17 @@ orchestrator_router reads next_agent from state
 └── anything else → "**end**"
 
 - Note that create_agent will return a dict with the key "messages" which contains the AI response AIMessage automatically yah
+
+# 2/4/26
+
+- How a single turn works
+  User types: "Read my emails" -> This triggers graph.invoke() (or stream).
+  Orchestrator wakes up, sees the human message, routes to email_worker.
+  Email Agent wakes up, calls the read_email tool, generates an AIMessage with the summary, and returns it.
+  Graph Edge from email_worker points back to orchestrator, so the orchestrator wakes up again.
+  Orchestrator sees the last message is an AIMessage. It says "Okay, the worker did its job. I have nothing left to do." -> It routes to END.
+  When it hits END, the graph.invoke() function call finishes, and your API returns the response to the frontend. The system then waits patiently.
+
+So will route to worker, at the very end, after calling all the ToolMessage, if it finsihses its task i will return an AIMessage. This will signal to start and retrun to orchestrator then to end.
+
+- When you enter a reply again it will start a new thread?

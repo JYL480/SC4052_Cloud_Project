@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 
-from logic.graph.state import AgentState, saver
+from logic.graph.state import AgentState
 from logic.agents.calander_agent import calendar_worker_node
 from logic.agents.ochestrator import orchestrator_node, orchestrator_router
 from logic.agents.email_agent import email_worker_node
@@ -26,37 +26,40 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # Master Graph
 # ==========================================
-graph_builder = StateGraph(AgentState)  # type: ignore
+async def setup_graph(saver):
+    graph_builder = StateGraph(AgentState)  # type: ignore
 
-# Add nodes
-graph_builder.add_node("orchestrator", orchestrator_node)
-graph_builder.add_node("calendar_worker", calendar_worker_node)
-graph_builder.add_node("email_worker", email_worker_node)
-graph_builder.add_node("weather_worker", weather_worker_node)
+    # Add nodes
+    graph_builder.add_node("orchestrator", orchestrator_node)
+    graph_builder.add_node("calendar_worker", calendar_worker_node)
+    graph_builder.add_node("email_worker", email_worker_node)
+    graph_builder.add_node("weather_worker", weather_worker_node)
 
-# Entry point: always start at the orchestrator
-graph_builder.set_entry_point("orchestrator")
+    # Entry point: always start at the orchestrator
+    graph_builder.set_entry_point("orchestrator")
 
-# Conditional edges: orchestrator decides where to go
-graph_builder.add_conditional_edges(
-    "orchestrator",
-    orchestrator_router,
-    {
-        "calendar_worker": "calendar_worker",
-        "email_worker": "email_worker",
-        "weather_worker": "weather_worker",
-        "__end__": END,
-    }
-)
+    # Conditional edges: orchestrator decides where to go
+    graph_builder.add_conditional_edges(
+        "orchestrator",
+        orchestrator_router,
+        {
+            "calendar_worker": "calendar_worker",
+            "email_worker": "email_worker",
+            "weather_worker": "weather_worker",
+            "__end__": END,
+        }
+    )
 
-# After the calendar worker finishes, always route back to the orchestrator
-# The orchestrator will see the AI response and route to END
-graph_builder.add_edge("calendar_worker", "orchestrator")
-graph_builder.add_edge("email_worker", "orchestrator")
-graph_builder.add_edge("weather_worker", "orchestrator")
+    # After the calendar worker finishes, always route back to the orchestrator
+    # The orchestrator will see the AI response and route to END
+    graph_builder.add_edge("calendar_worker", "orchestrator")
+    graph_builder.add_edge("email_worker", "orchestrator")
+    graph_builder.add_edge("weather_worker", "orchestrator")
 
-# Compile the graph
-graph = graph_builder.compile(checkpointer=saver)
+    # Compile the graph
+    graph = graph_builder.compile(checkpointer=saver)
+
+    return graph
 
 
 if __name__ == "__main__":

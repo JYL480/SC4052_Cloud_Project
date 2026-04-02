@@ -26,7 +26,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 #Get the memory state sqlite
-from logic.graph.state import saver
+# from core.lifespan import saver
 
 from datetime import timedelta
 
@@ -250,7 +250,7 @@ calendar_react_agent = create_agent(
         },
         description_prefix="Tool execution pending approval",
     )],
-    checkpointer=saver,
+    # checkpointer=saver,
 )
 
 # ==========================================

@@ -18,7 +18,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from utils.main_utils import llm_model
-from logic.graph.state import saver
+# from logic.graph.state import saver
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -40,7 +40,7 @@ ENDPOINTS = {
     "relative_humidity":      f"{BASE}/relative-humidity",
     "rainfall":               f"{BASE}/rainfall",
     "wind_speed":             f"{BASE}/wind-speed",
-    "uv_index":               f"{BASE}/uv-index",
+    "uv_index":               f"{BASE}/uv",
     "psi":                    f"{BASE}/psi",
 }
 
@@ -473,8 +473,7 @@ Rules:
 weather_react_agent = create_agent(
     model=llm_model,
     system_prompt=weather_system_prompt,
-    tools=weather_tools,
-    checkpointer=saver,
+    tools=weather_tools
 )
 
 # ==========================================

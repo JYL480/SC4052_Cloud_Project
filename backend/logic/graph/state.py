@@ -12,12 +12,9 @@ from operator import add
 import os
 import sys
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-import sqlite3
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-# Define your checkpointer globally here so ALL agents and graphs can use it!
-conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-saver = SqliteSaver(conn)
 
 # ===============================================
 # 1. State Definition (Used natively by LangGraph)
@@ -38,6 +35,17 @@ class AgentState(TypedDict):
 
     requires_approval: Optional[bool]
     
+    generation_state: Optional[str] #KIV for now LOL
+    
 #### Note i will not be adding the user_id, thread_id here. All will done in the config that is passde
 # To the graph yeah to watch for the state changes
 
+generation_state = {
+    "idle",
+    "routing",
+    "processing",
+    "waiting_approval",
+    "generating",
+    "completed",
+    "error"
+}
