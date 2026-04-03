@@ -4,7 +4,9 @@
 *.sqlite
 client_secret.json
 gmail_token.json
-*.json
+client_secret.json
+gmail_secret.json
+token.json
 token.json
 *sqlite-shm
 *sqlite-wal
