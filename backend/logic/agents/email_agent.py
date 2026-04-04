@@ -230,7 +230,7 @@ def reply_to_email(message_id: str, body: str) -> str:
 
 email_tools = [read_emails, search_emails, send_email, reply_to_email]
 
-rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules/rules.md'))
 user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
 
 
@@ -320,9 +320,15 @@ Your priority is to assist accurately while giving the user full control over al
 """
 
 
-def _create_email_react_agent():
-    """Create email agent with latest prompt context for each invocation."""
-    return create_agent(
+def _create_email_react_agent(checkpointer=None):
+    """Create email agent with latest prompt context for each invocation.
+
+    Args:
+        checkpointer: Optional LangGraph checkpointer for HITL state persistence.
+                      When called from the service layer, a shared MemorySaver is
+                      passed so interrupt state survives across HTTP requests.
+    """
+    kwargs = dict(
         model=llm_model,
         system_prompt=_build_email_system_prompt(),
         tools=email_tools,
@@ -336,6 +342,9 @@ def _create_email_react_agent():
             description_prefix="Email action pending approval",
         )],
     )
+    if checkpointer is not None:
+        kwargs["checkpointer"] = checkpointer
+    return create_agent(**kwargs)
 
 # ==========================================
 # 4. LangGraph Node Wrapper

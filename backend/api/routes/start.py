@@ -19,7 +19,7 @@ class Item(BaseModel):
     description: str | None = None
 
 @router.get("/health")
-def health_check():
+async def health_check():
     print(shared_resources)
     health_status = {
         "status": "healthy",
@@ -28,10 +28,17 @@ def health_check():
             "db_connection": shared_resources.get('db_connection') is not None,
             "saver": shared_resources.get('saver') is not None,
         },
+        "service_endpoints": {
+            "weather": "/services/weather/health",
+            "calendar": "/services/calendar/health",
+            "email": "/services/email/health",
+            "preferences": "/services/preferences/health",
+            "general": "/services/general/health",
+        },
         "shared_resources_count": len(shared_resources)
     }
     
-    # If any service is down, return 503
+    # If any core service is down, return 503
     if not all(health_status["services"].values()):
         from fastapi.responses import JSONResponse
         return JSONResponse(
@@ -39,7 +46,7 @@ def health_check():
             content={
                 "status": "unhealthy",
                 "services": health_status["services"],
-                "message": "Some services are not available"
+                "message": "Some core services are not available"
             }
         )
     

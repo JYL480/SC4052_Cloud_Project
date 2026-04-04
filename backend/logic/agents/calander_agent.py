@@ -215,7 +215,7 @@ calendar_tools = [
     delete_selected_event
 ]
 
-rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules/rules.md'))
 user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
 
 
@@ -265,9 +265,15 @@ When deleting an event:
 """
 
 
-def _create_calendar_react_agent():
-    """Create calendar agent with latest prompt context for each invocation."""
-    return create_agent(
+def _create_calendar_react_agent(checkpointer=None):
+    """Create calendar agent with latest prompt context for each invocation.
+    
+    Args:
+        checkpointer: Optional LangGraph checkpointer for HITL state persistence.
+                      When called from the service layer, a shared MemorySaver is
+                      passed so interrupt state survives across HTTP requests.
+    """
+    kwargs = dict(
         model=llm_model,
         system_prompt=_build_calendar_system_prompt(),
         tools=calendar_tools,
@@ -282,6 +288,9 @@ def _create_calendar_react_agent():
             description_prefix="Tool execution pending approval",
         )],
     )
+    if checkpointer is not None:
+        kwargs["checkpointer"] = checkpointer
+    return create_agent(**kwargs)
 
 # ==========================================
 # 3. LangGraph Node Wrapper
