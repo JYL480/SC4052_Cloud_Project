@@ -230,7 +230,39 @@ def reply_to_email(message_id: str, body: str) -> str:
 
 email_tools = [read_emails, search_emails, send_email, reply_to_email]
 
-email_system_prompt = f"""You are a helpful and careful email assistant.
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
+
+
+def _safe_read_text(path: str, missing_message: str) -> str:
+    """Read file content safely and return fallback text if missing/unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.warning("Context file not found: %s", path)
+        return missing_message
+    except OSError:
+        logger.exception("Failed to read context file: %s", path)
+        return missing_message
+
+
+def _build_email_system_prompt() -> str:
+    """Build system prompt dynamically so updated preferences are picked up."""
+    rules_text = _safe_read_text(rules_md, "No additional rules file found.")
+    preferences_text = _safe_read_text(
+        user_preferences_md,
+        "No user preferences file found yet. Use neutral defaults and ask brief clarifying questions when needed.",
+    )
+
+    return f"""You are a helpful and careful email assistant.
+Before you carry on with your tasks:
+Read through and follow rules strictly.
+{rules_text}
+
+Tailor your responses to user's locale and preferences.
+{preferences_text}
+
 Today's date is {today}.
 
 Your role is to help the user manage their email efficiently while ensuring accuracy, clarity, and user confirmation before taking any action.
@@ -287,21 +319,23 @@ SAFETY AND CONFIRMATION:
 Your priority is to assist accurately while giving the user full control over all outgoing communication.
 """
 
-email_react_agent = create_agent(
-    model=llm_model,
-    system_prompt=email_system_prompt,
-    tools=email_tools,
-    middleware=[HumanInTheLoopMiddleware(
-        interrupt_on={
-            "send_email": True,         # Always ask before sending
-            "reply_to_email": True,     # Always ask before replying
-            "read_emails": False,       # Safe to read silently
-            "search_emails": False,     # Safe to search silently
-        },
-        description_prefix="Email action pending approval",
-    )],
-    # checkpointer=saver,
-)
+
+def _create_email_react_agent():
+    """Create email agent with latest prompt context for each invocation."""
+    return create_agent(
+        model=llm_model,
+        system_prompt=_build_email_system_prompt(),
+        tools=email_tools,
+        middleware=[HumanInTheLoopMiddleware(
+            interrupt_on={
+                "send_email": True,
+                "reply_to_email": True,
+                "read_emails": False,
+                "search_emails": False,
+            },
+            description_prefix="Email action pending approval",
+        )],
+    )
 
 # ==========================================
 # 4. LangGraph Node Wrapper
@@ -310,6 +344,7 @@ email_react_agent = create_agent(
 def email_worker_node(state: dict, config: RunnableConfig) -> dict:
     """LangGraph node that runs the email agent."""
     logger.info("📧 Email worker node invoked.")
+    email_react_agent = _create_email_react_agent()
 
     response = email_react_agent.invoke(
         {"messages": state["messages"]},
@@ -335,6 +370,8 @@ if __name__ == "__main__":
         if user_input.lower() in ["quit", "exit", "q"]:
             print("Goodbye!")
             break
+
+        email_react_agent = _create_email_react_agent()
 
         response = email_react_agent.invoke(
             {"messages": [HumanMessage(content=user_input)]},

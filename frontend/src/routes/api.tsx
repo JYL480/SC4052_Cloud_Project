@@ -6,6 +6,7 @@ export type CreateThreadResponse = {
   thread_id: string;
   user_id: string;
   message: string;
+  onboarding_message?: string | null;
 };
 
 export type ChatRequest = {
@@ -28,6 +29,7 @@ export type ResumeResponse = {
 
 export type ChatSseEvent =
   | { type: "node"; node: string }
+  | { type: "route"; from: string; to: string }
   | { type: "message"; node: string; content: string }
   | { type: "interrupt"; details?: Record<string, unknown> }
   | { type: "error"; content: string }

@@ -18,7 +18,9 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from utils.main_utils import llm_model
-# from logic.graph.state import saver
+
+
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -406,21 +408,54 @@ weather_tools = [
     get_worldwide_weather,
 ]
 
-weather_system_prompt = f"""You are a helpful Singapore / Worldwide weather assistant powered by real-time NEA data.
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
+
+
+def _safe_read_text(path: str, missing_message: str) -> str:
+    """Read file content safely and return fallback text if missing/unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.warning("Context file not found: %s", path)
+        return missing_message
+    except OSError:
+        logger.exception("Failed to read context file: %s", path)
+        return missing_message
+
+
+def _build_weather_system_prompt() -> str:
+    """Build system prompt dynamically so updated preferences are picked up."""
+    rules_text = _safe_read_text(rules_md, "No additional rules file found.")
+    preferences_text = _safe_read_text(
+        user_preferences_md,
+        "No user preferences file found yet. Use neutral defaults and ask brief clarifying questions when needed.",
+    )
+
+    return f"""You are a helpful worldwide weather assistant powered by real-time data sources.
+
+Before you carry on with your tasks:
+Read through and follow rules strictly.
+{rules_text}
+
+Tailor your responses to user's locale and preferences.
+{preferences_text}
+
 Today's date is {today}.
 
 Available tools:
-- get_two_hour_forecast: 2-hour forecast by area (e.g. Tampines, Woodlands)
-- get_temperature: Real-time temperature readings by station/area
-- get_humidity: Real-time humidity readings
-- get_wind_speed: Real-time wind speed readings
-- get_rainfall: Real-time rainfall readings
-- get_uv_index: Current UV index and risk level
-- get_psi: Air quality / Pollutant Standards Index
-- get_four_day_outlook: 4-day weather forecast
+- get_two_hour_forecast: 2-hour forecast by area (Singapore only)
+- get_temperature: Real-time temperature readings (Singapore only)
+- get_humidity: Real-time humidity readings (Singapore only)
+- get_wind_speed: Real-time wind speed readings (Singapore only)
+- get_rainfall: Real-time rainfall readings (Singapore only)
+- get_uv_index: Current UV index and risk level (Singapore only)
+- get_psi: Air quality / Pollutant Standards Index (Singapore only)
+- get_four_day_outlook: 4-day weather forecast (Singapore only)
 - get_worldwide_weather: Current weather for ANY city in the world
 
-Singapore geography mapping:
+Singapore geography mapping (only use if location is Singapore):
 - North: Woodlands, Yishun, Sembawang, Admiralty
 - South: Sentosa, HarbourFront, Marina Bay
 - East: Tampines, Pasir Ris, Bedok, Changi
@@ -428,53 +463,79 @@ Singapore geography mapping:
 - Central: Orchard, Toa Payoh, Bishan, Novena, Ang Mo Kio
 
 Rules:
+
 1. Determine location scope:
-   - If the location is in Singapore → use Singapore tools
-   - If the location is outside Singapore → use get_worldwide_weather
-   - If unclear → ask a clarification question
+   - First check saved user preferences in the injected context.
+   - If the location is Singapore → use Singapore-specific tools where applicable.
+   - If the location is outside Singapore → use get_worldwide_weather.
+   - If unclear → ask a clarification question.
 
 2. Determine the user's location:
-   - If explicitly provided → use it
+   - Use saved preferences if available.
+   - If explicitly provided → use it.
    - If vague (e.g. "near me"):
-       - Assume Singapore Central ONLY if user context is Singapore
-       - Otherwise ask for clarification
+       - Use saved location if available.
+       - Otherwise ask for clarification.
 
 3. Tool selection:
-   - Rain / "will it rain" → get_two_hour_forecast + get_rainfall (Singapore only)
-   - Heat / temperature → get_temperature + get_humidity
-   - Wind → get_wind_speed
+   - Rain / "will it rain":
+       • Singapore → get_two_hour_forecast + get_rainfall
+       • Worldwide → get_worldwide_weather
+   - Heat / temperature → get_temperature + get_humidity (Singapore) or get_worldwide_weather
+   - Wind → get_wind_speed (Singapore) or get_worldwide_weather
    - UV → get_uv_index
-   - Air quality → get_psi
-   - Future weather → get_four_day_outlook
+   - Air quality:
+       • Singapore → get_psi
+       • Worldwide → get_worldwide_weather if available
+   - Future weather:
+       • Singapore → get_four_day_outlook
+       • Worldwide → get_worldwide_weather
 
-4. Worldwide queries:
-   - Always use get_worldwide_weather
-   - Do NOT use Singapore-specific tools
+4. Mandatory tool invocation:
+   - For ANY weather question, you MUST call at least one weather tool before answering.
+   - Do not answer from prior knowledge.
+   - Infer location from preferences if needed.
 
-5. Singapore queries:
-   - Always map user location to the closest Singapore area
-   - Pass the mapped area into the tool
+5. Worldwide queries:
+   - Always use get_worldwide_weather.
+   - Do NOT use Singapore-specific tools.
 
-6. Combine tools when needed:
+6. Singapore queries:
+   - Map user location to the closest Singapore area when needed.
+   - Use Singapore-specific tools for higher accuracy.
+
+7. Combine tools when needed:
    Example:
-   - "Weather now" → temperature + humidity + rainfall + forecast
+   - "Weather now":
+       • Singapore → temperature + humidity + rainfall + forecast
+       • Worldwide → get_worldwide_weather
 
-7. Response style:
-   - Start with a direct answer
-   - Then provide a short breakdown
-   - Keep it concise and easy to read
+8. Response style:
+   - Start with a direct answer.
+   - Then provide a short breakdown.
+   - Keep it concise and easy to read.
 
-8. Never hallucinate weather data. Always rely on tool outputs.
+9. Never hallucinate weather data:
+   - Always rely on tool outputs.
 
-9. No HITL required — all tools are safe read operations.
+10. Tool reliability:
+   - Do NOT say "I don't have access to real-time weather data".
+   - Only report limitation if a tool call fails, and suggest retry.
+
+11. Preference override policy:
+   - If saved preferences indicate a specific country, default to that.
+   - If the user explicitly asks for another location, override preferences.
 """
 
-# No HumanInTheLoopMiddleware — weather reads are always safe
-weather_react_agent = create_agent(
-    model=llm_model,
-    system_prompt=weather_system_prompt,
-    tools=weather_tools
-)
+
+def _create_weather_react_agent():
+    """Create weather agent with latest prompt context for each invocation."""
+
+    return create_agent(
+        model=llm_model,
+        system_prompt=_build_weather_system_prompt(),
+        tools=weather_tools,
+    )
 
 # ==========================================
 # LangGraph Node Wrapper
@@ -483,6 +544,7 @@ weather_react_agent = create_agent(
 def weather_worker_node(state: dict, config: RunnableConfig) -> dict:
     """LangGraph node that runs the weather agent."""
     logger.info("⛅ Weather worker node invoked.")
+    weather_react_agent = _create_weather_react_agent()
     response = weather_react_agent.invoke(
         {"messages": state["messages"]},
         config=config
@@ -505,6 +567,8 @@ if __name__ == "__main__":
         if user_input.lower() in ["quit", "exit", "q"]:
             print("Goodbye!")
             break
+
+        weather_react_agent = _create_weather_react_agent()
 
         response = weather_react_agent.invoke(
             {"messages": [HumanMessage(content=user_input)]},

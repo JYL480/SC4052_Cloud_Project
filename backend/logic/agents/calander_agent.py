@@ -26,7 +26,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 #Get the memory state sqlite
-# from core.lifespan import saver
 
 from datetime import timedelta
 
@@ -216,8 +215,40 @@ calendar_tools = [
     delete_selected_event
 ]
 
-# System prompt giving the agent its persona and rules
-calendar_system_prompt = f"""You are a helpful calendar assistant. 
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
+
+
+def _safe_read_text(path: str, missing_message: str) -> str:
+    """Read file content safely and return fallback text if missing/unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.warning("Context file not found: %s", path)
+        return missing_message
+    except OSError:
+        logger.exception("Failed to read context file: %s", path)
+        return missing_message
+
+
+def _build_calendar_system_prompt() -> str:
+    """Build system prompt dynamically so updated preferences are picked up."""
+    rules_text = _safe_read_text(rules_md, "No additional rules file found.")
+    preferences_text = _safe_read_text(
+        user_preferences_md,
+        "No user preferences file found yet. Use neutral defaults and ask brief clarifying questions when needed.",
+    )
+
+    return f"""You are a helpful calendar assistant. 
+Before you carry on with your tasks:
+Read through and follow rules strictly.
+{rules_text}
+
+Tailor your responses to user's locale and preferences. Always confirm details before creating or deleting events.
+{preferences_text}
+
+
 Today's date is {today}.
 Rules:
 1. ALWAYS use `conflict_calender_event` to check for conflicts BEFORE creating an event.
@@ -233,25 +264,24 @@ When deleting an event:
 4. Use delete_selected_event with the chosen event ID
 """
 
-# Initialize the LangGraph ReAct agent
-# ⚠️ WARNING: DO NOT CHANGE THIS TO `create_agent`! 
-# `create_agent` does NOT execute tools, it only simulates them.
-calendar_react_agent = create_agent(
-    model=llm_model, 
-    system_prompt=calendar_system_prompt,
-    tools=calendar_tools,
-    middleware=[HumanInTheLoopMiddleware(
-        interrupt_on = {
-            "create_calendar_event": True,
-            "delete_selected_event": True,
-            "get_calendar_events": False,
-            "conflict_calender_event": False,
-            "find_events_by_name": False
-        },
-        description_prefix="Tool execution pending approval",
-    )],
-    # checkpointer=saver,
-)
+
+def _create_calendar_react_agent():
+    """Create calendar agent with latest prompt context for each invocation."""
+    return create_agent(
+        model=llm_model,
+        system_prompt=_build_calendar_system_prompt(),
+        tools=calendar_tools,
+        middleware=[HumanInTheLoopMiddleware(
+            interrupt_on={
+                "create_calendar_event": True,
+                "delete_selected_event": True,
+                "get_calendar_events": False,
+                "conflict_calender_event": False,
+                "find_events_by_name": False
+            },
+            description_prefix="Tool execution pending approval",
+        )],
+    )
 
 # ==========================================
 # 3. LangGraph Node Wrapper
@@ -263,6 +293,7 @@ def calendar_worker_node(state: dict, config: RunnableConfig) -> dict:
     It takes the current graph state, runs the agent, and returns state updates.
     """
     logger.info("📅 Calendar worker node invoked.")
+    calendar_react_agent = _create_calendar_react_agent()
     
     # Run the compiled LangGraph ReAct agent using version v2 to get the full GraphOutput
     # which includes the `.interrupts` field!
@@ -342,6 +373,7 @@ if __name__ == "__main__":
 
     while True:
         print(f"You: {user_input}\n")
+        calendar_react_agent = _create_calendar_react_agent()
         
         # Invoke the agent with the current user message
         response = calendar_react_agent.invoke(

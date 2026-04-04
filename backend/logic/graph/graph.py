@@ -17,6 +17,8 @@ from logic.agents.calander_agent import calendar_worker_node
 from logic.agents.ochestrator import orchestrator_node, orchestrator_router
 from logic.agents.email_agent import email_worker_node
 from logic.agents.weather_agent import weather_worker_node
+from logic.agents.user_preference_agent import user_preference_worker_node
+from logic.agents.general_agent import general_worker_node
 from langgraph.types import Command
 
 import logging
@@ -34,6 +36,8 @@ async def setup_graph(saver):
     graph_builder.add_node("calendar_worker", calendar_worker_node)
     graph_builder.add_node("email_worker", email_worker_node)
     graph_builder.add_node("weather_worker", weather_worker_node)
+    graph_builder.add_node("user_preference_worker", user_preference_worker_node)
+    graph_builder.add_node("general_worker", general_worker_node)
 
     # Entry point: always start at the orchestrator
     graph_builder.set_entry_point("orchestrator")
@@ -46,6 +50,8 @@ async def setup_graph(saver):
             "calendar_worker": "calendar_worker",
             "email_worker": "email_worker",
             "weather_worker": "weather_worker",
+            "user_preference_worker": "user_preference_worker",
+            "general_worker": "general_worker",
             "__end__": END,
         }
     )
@@ -55,6 +61,8 @@ async def setup_graph(saver):
     graph_builder.add_edge("calendar_worker", "orchestrator")
     graph_builder.add_edge("email_worker", "orchestrator")
     graph_builder.add_edge("weather_worker", "orchestrator")
+    graph_builder.add_edge("user_preference_worker", "orchestrator")
+    graph_builder.add_edge("general_worker", "orchestrator")
 
     # Compile the graph
     graph = graph_builder.compile(checkpointer=saver)
@@ -68,6 +76,20 @@ if __name__ == "__main__":
     print("\n==========================================")
     print("Welcome to your Multi-Agent Terminal!")
     print("==========================================\n")
+    ONBOARDING_WELCOME = """🧠 Welcome! I am your personal assistant onboarding helper.
+
+    Before we begin, I need to collect your preferences so I can personalize calendar, email, and weather support.
+
+    Please share these in one message:
+    - Name
+    - Timezone
+    - Default meeting duration (minutes)
+    - Calendar buffer time (minutes)
+    - Preferred email tone
+    - Email signoff
+    - Weather unit (celsius or fahrenheit)
+    """
+    print(ONBOARDING_WELCOME)
 
     config: RunnableConfig = {"configurable": {"thread_id": "master_thread_1"}}
     user_input = input("You: ").strip()

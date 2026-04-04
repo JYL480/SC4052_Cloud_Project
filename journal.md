@@ -18,16 +18,14 @@ front end- react-vite
 
 - Simple Ones:
 
-1. Help to set up meeting with googlemeets?
+1. Calender functions
 2. Help to draft email to someone
-3. Help to search for information online and summarize it
+3. Weather bot.....
 
-- Complex Ones:
+complex?
 
-1. Help order food for you?
-2. Help book a seat at NLB (COOL LOL)
-3. Help to book restaurants?
-4. Buy gym pass to activeSG?
+- It will ask the user their preferences before starting, store them to md
+- Conssatnly ping this md when calling tool
 
 ## How to first?
 
@@ -90,3 +88,9 @@ orchestrator_router reads next_agent from state
 So will route to worker, at the very end, after calling all the ToolMessage, if it finsihses its task i will return an AIMessage. This will signal to start and retrun to orchestrator then to end.
 
 - When you enter a reply again it will start a new thread?
+
+# 3/4/26
+
+I will prob write, take what the agents do as hints, and fact cehck based on the rules etc to prevent wrong things from happeneing
+
+- HUh i guess i need a general agent to base off the gneral stuff hor

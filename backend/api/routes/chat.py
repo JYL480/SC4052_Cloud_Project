@@ -17,6 +17,9 @@ from langchain_core.runnables import RunnableConfig
 import uuid
 import json
 import asyncio
+import re
+from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -32,6 +35,26 @@ from core.lifespan import shared_resources
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
+ONBOARDING_WELCOME = """Welcome! I am your personal assistant onboarding helper.
+
+Before we begin, I need to collect your preferences so I can personalize calendar, email, and weather support.
+
+Please share these in one message:
+- Name
+- Timezone
+- Default meeting duration (minutes)
+- Calendar buffer time (minutes)
+- Preferred email tone
+- Email signoff
+- Weather unit (celsius or fahrenheit)
+"""
+
+PREFERENCES_PATH = Path(
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md')
+    )
+)
+
 
 # ==========================================
 # Request / Response Schemas
@@ -41,6 +64,7 @@ class CreateThreadResponse(BaseModel):
     thread_id: str
     user_id: str
     message: str
+    onboarding_message: Optional[str] = None
 
 
 class ChatRequest(BaseModel):
@@ -74,6 +98,27 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _has_saved_preferences() -> bool:
+    """Return True when preferences markdown exists and contains a non-empty JSON block."""
+    if not PREFERENCES_PATH.exists():
+        return False
+
+    try:
+        content = PREFERENCES_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", content)
+    if not match:
+        return False
+
+    try:
+        payload = json.loads(match.group(1))
+        return bool(payload)
+    except json.JSONDecodeError:
+        return False
+
+
 # ==========================================
 # Endpoints
 # ==========================================
@@ -85,10 +130,13 @@ def create_thread(user_id: str):
     Returns a unique thread_id to pass in all subsequent requests.
     """
     thread_id = str(uuid.uuid4())
+    onboarding_message = ONBOARDING_WELCOME
+
     return CreateThreadResponse(
         thread_id=thread_id,
         user_id=user_id,
         message=f"Thread '{thread_id}' created for user '{user_id}'.",
+        onboarding_message=onboarding_message,
     )
 
 
@@ -129,6 +177,11 @@ async def chat_stream(api_request: Request, request: ChatRequest):
                     if not isinstance(node_output, dict):
                         # Skip unexpected payload shapes to keep the stream resilient.
                         continue
+
+                    # Emit explicit routing decision from orchestrator.
+                    next_agent = node_output.get("next_agent")
+                    if isinstance(next_agent, str) and node_name == "orchestrator":
+                        yield _sse({"type": "route", "from": node_name, "to": next_agent})
 
                     # Forward the last AI message from this node to the client
                     messages = node_output.get("messages", [])

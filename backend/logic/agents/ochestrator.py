@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # Add new agent node-names here as you build them.
 # These must match the node names registered in graph.py!
-SUPPORTED_AGENTS = ["calendar_worker", "email_worker", "weather_worker"]
+SUPPORTED_AGENTS = ["calendar_worker", "email_worker", "weather_worker", "user_preference_worker", "general_worker"]
 
 def _detect_last_active_agent(messages: list[BaseMessage]) -> str | None:
     """
@@ -97,6 +97,8 @@ Available agents:
 - calendar_worker: Scheduling, events, reminders, calendar, conflicts.
 - email_worker: Reading, searching, composing, sending, replying to emails.
 - weather_worker: Current weather, forecasts, UV, air quality.
+- user_preference_worker: Collecting, updating, and saving user preferences/profile settings.
+- general_worker: General assistant conversation, planning, and fallback requests.
 
 --- Conversation history ---
 {history_text}
@@ -105,10 +107,11 @@ Available agents:
 Latest user message: "{last_human}"
 
 RULES:
-1. Output ONLY ONE of: calendar_worker | email_worker | weather_worker | end
+1. Output ONLY ONE of: calendar_worker | email_worker | weather_worker | user_preference_worker | general_worker | end
 2. No explanation. No questions.
 3. Follow-ups ("make it friendlier", "change the subject", "add more") → same agent as previous turn.
-4. Use 'end' ONLY if the request is completely unrelated to all agents.
+4. Use general_worker for requests that do not clearly fit specialist workers.
+5. Use 'end' ONLY when conversation is clearly complete (for example: "thanks bye").
 """
 
     response = llm_model.invoke(routing_prompt)
@@ -119,7 +122,7 @@ RULES:
         if agent in decision:
             return agent
 
-    return "end"
+    return "general_worker"
 
 
 def orchestrator_node(state: dict) -> dict:
@@ -162,6 +165,10 @@ def orchestrator_router(state: dict) -> str:
         return "email_worker"
     elif next_agent == "weather_worker":
         return "weather_worker"
+    elif next_agent == "user_preference_worker":
+        return "user_preference_worker"
+    elif next_agent == "general_worker":
+        return "general_worker"
 
     # Default: end the graph
     return "__end__"

@@ -64,7 +64,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
-  API_BASE_URL,
   createThread,
   resumeChat,
   streamChat,
@@ -91,19 +90,7 @@ type GroupedMessage = {
   messages: { id: string; text: string }[];
 };
 
-const initialMessages: MessageType[] = [
-  {
-    from: "assistant",
-    key: nanoid(),
-    versions: [
-      {
-        id: nanoid(),
-        content:
-          "Hi, I am connected to your FastAPI + LangGraph backend. Ask about calendar, email, or weather to begin.",
-      },
-    ],
-  },
-];
+const initialMessages: MessageType[] = [];
 
 const models = [
   {
@@ -234,6 +221,8 @@ const Chat = () => {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [userId] = useState<string>(`web_${nanoid(8)}`);
   const [activeNode, setActiveNode] = useState<string | null>(null);
+  const [routedTo, setRoutedTo] = useState<string | null>(null);
+  const [agentTrace, setAgentTrace] = useState<string[]>([]);
   const [pendingInterrupt, setPendingInterrupt] =
     useState<PendingInterrupt | null>(null);
   const [currentAssistantMessageId, setCurrentAssistantMessageId] = useState<
@@ -243,6 +232,7 @@ const Chat = () => {
   const streamAbortRef = useRef<AbortController | null>(null);
   const currentAssistantMessageIdRef = useRef<string | null>(null);
   const activeNodeRef = useRef<string | null>(null);
+  const onboardingShownRef = useRef(false);
 
   const selectedModelData = useMemo(
     () => models.find((m) => m.id === model),
@@ -252,6 +242,27 @@ const Chat = () => {
   const appendMessage = useCallback((message: MessageType) => {
     setMessages((prev) => [...prev, message]);
   }, []);
+
+  const maybeShowOnboarding = useCallback(
+    (onboardingMessage?: string | null) => {
+      if (!onboardingMessage || onboardingShownRef.current) {
+        return;
+      }
+
+      appendMessage({
+        from: "assistant",
+        key: nanoid(),
+        versions: [
+          {
+            id: nanoid(),
+            content: onboardingMessage,
+          },
+        ],
+      });
+      onboardingShownRef.current = true;
+    },
+    [appendMessage],
+  );
 
   const appendMessageChunk = useCallback((messageId: string, chunk: string) => {
     setMessages((prev) =>
@@ -281,9 +292,10 @@ const Chat = () => {
     }
 
     const created = await createThread(userId);
+    maybeShowOnboarding(created.onboarding_message);
     setThreadId(created.thread_id);
     return created.thread_id;
-  }, [threadId, userId]);
+  }, [threadId, userId, maybeShowOnboarding]);
 
   useEffect(() => {
     let mounted = true;
@@ -294,6 +306,7 @@ const Chat = () => {
         if (!mounted) {
           return;
         }
+        maybeShowOnboarding(created.onboarding_message);
         setThreadId(created.thread_id);
         toast.success("Chat thread ready", {
           description: `Thread: ${created.thread_id.slice(0, 8)}...`,
@@ -318,7 +331,7 @@ const Chat = () => {
       mounted = false;
       streamAbortRef.current?.abort();
     };
-  }, [userId]);
+  }, [userId, maybeShowOnboarding]);
 
   useEffect(() => {
     currentAssistantMessageIdRef.current = currentAssistantMessageId;
@@ -341,6 +354,19 @@ const Chat = () => {
         const nextNode = (event as { node: string }).node;
         activeNodeRef.current = nextNode;
         setActiveNode(nextNode);
+        setAgentTrace((prev) =>
+          prev[prev.length - 1] === nextNode ? prev : [...prev, nextNode],
+        );
+        return;
+      }
+
+      if (
+        eventType === "route" &&
+        typeof (event as { to?: unknown }).to === "string"
+      ) {
+        const target = (event as { to: string }).to;
+        setRoutedTo(target);
+        toast.message("Routing", { description: `Routed to ${target}` });
         return;
       }
 
@@ -401,6 +427,8 @@ const Chat = () => {
       setPendingInterrupt(null);
 
       const currentThreadId = await ensureThread();
+      setAgentTrace([]);
+      setRoutedTo(null);
 
       const userMessage: MessageType = {
         from: "user",
@@ -596,11 +624,8 @@ const Chat = () => {
           <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/80 px-4 py-3 backdrop-blur-sm">
             <div className="space-y-1 text-left">
               <h2 className="font-semibold text-foreground text-lg">
-                Multi-Agent Chat Interface
+                Personal Assistant APP
               </h2>
-              <p className="text-muted-foreground text-sm">
-                Connected to {API_BASE_URL}
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={threadId ? "secondary" : "outline"}>
@@ -608,7 +633,7 @@ const Chat = () => {
                   ? `Thread: ${threadId.slice(0, 8)}...`
                   : "Creating thread"}
               </Badge>
-              <Badge
+              {/* <Badge
                 variant={
                   status === "error"
                     ? "destructive"
@@ -617,11 +642,19 @@ const Chat = () => {
                       : "outline"
                 }
               >
-                Status: {status}
-              </Badge>
+                Status: {status} */}
+              {/* </Badge>
               {activeNode ? (
                 <Badge variant="outline">Node: {activeNode}</Badge>
               ) : null}
+              {routedTo ? (
+                <Badge variant="outline">Routed: {routedTo}</Badge>
+              ) : null}
+              {agentTrace.length > 0 ? (
+                <Badge variant="outline">
+                  Agents: {agentTrace.join(" -> ")}
+                </Badge>
+              ) : null} */}
             </div>
           </header>
 
@@ -727,6 +760,23 @@ const Chat = () => {
               </ConversationContent>
               <ConversationScrollButton />
             </Conversation>
+
+            {(status === "submitted" || status === "streaming") &&
+            (routedTo || activeNode) ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+                <div className="rounded-full border border-border/80 bg-background/85 px-4 py-2 shadow-sm backdrop-blur-sm">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Routing:</span>
+                    <Shimmer className="text-sm font-medium">
+                      {(routedTo ?? activeNode ?? "orchestrator").replaceAll(
+                        "_",
+                        " ",
+                      )}
+                    </Shimmer>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="space-y-3 rounded-2xl border bg-background/90 p-3 md:p-4">
@@ -780,7 +830,11 @@ const Chat = () => {
                     open={modelSelectorOpen}
                   >
                     <ModelSelectorTrigger asChild>
-                      <PromptInputButton className="max-w-48" variant="outline">
+                      <PromptInputButton
+                        className="w-48"
+                        size="sm"
+                        variant="outline"
+                      >
                         <span className="truncate">
                           {selectedModelData?.name ?? "Select model"}
                         </span>

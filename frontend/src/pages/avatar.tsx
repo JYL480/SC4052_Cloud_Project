@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { TalkingHead } from "@met4citizen/talkinghead";
+// import {lipsync-en.mjs} from "@met4citizen/talkinghead/dist/";
 
 type TalkingHeadInstance = {
   showAvatar: (
@@ -32,7 +34,7 @@ const Avatar = () => {
 
         const head = new TalkingHead(avatarRef.current, {
           cameraView: "upper",
-          lipsyncModules: ["en", "fi"],
+          lipsyncModules: ["en"],
           ttsApikey: "put-your-own-Google-TTS-API-key-here",
           ttsEndpoint:
             "https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize",
