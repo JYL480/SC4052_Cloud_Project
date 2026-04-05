@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 # Add new agent node-names here as you build them.
 # These must match the node names registered in graph.py!
 SUPPORTED_AGENTS = ["calendar_worker", "email_worker", "weather_worker", "user_preference_worker", "general_worker"]
+AGENTS_MD_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/agents/agents.md'))
+
+
+def _safe_read_text(path: str, fallback: str) -> str:
+    """Read file content safely, return fallback if missing."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except (FileNotFoundError, OSError):
+        logger.warning("Context file not found: %s", path)
+        return fallback
 
 def _detect_last_active_agent(messages: list[BaseMessage]) -> str | None:
     """
@@ -91,14 +102,15 @@ def _classify_intent(messages: list[BaseMessage]) -> str:
         history_lines.append(f"{role}: {content}")
     history_text = "\n".join(history_lines)
 
+    # Read agent descriptions from disk (picks up any new agents added to the file)
+    agents_text = _safe_read_text(
+        AGENTS_MD_PATH,
+        "calendar_worker, email_worker, weather_worker, user_preference_worker, general_worker",
+    )
+
     routing_prompt = f"""You are a strict task router. Assign the latest user message to the most appropriate agent.
 
-Available agents:
-- calendar_worker: Scheduling, events, reminders, calendar, conflicts.
-- email_worker: Reading, searching, composing, sending, replying to emails.
-- weather_worker: Current weather, forecasts, UV, air quality.
-- user_preference_worker: Collecting, updating, and saving user preferences/profile settings.
-- general_worker: General assistant conversation, planning, and fallback requests.
+{agents_text}
 
 --- Conversation history ---
 {history_text}
