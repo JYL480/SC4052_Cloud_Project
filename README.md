@@ -8,6 +8,13 @@ At its core, the application acts as a highly capable digital secretary. It oper
 
 ---
 
+## 🎥 Demo
+
+Check out the full platform demonstration here:
+[![Watch the video](https://img.youtube.com/vi/f95IwwUcq1A/maxresdefault.jpg)](https://www.youtube.com/watch?v=f95IwwUcq1A)
+
+---
+
 ## 🎯 Core Capabilities
 
 **1. Intelligent Email Management (`email_worker`)**
