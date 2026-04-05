@@ -8,6 +8,6 @@ uvicorn api.main:app --reload
 cd backend
 uvicorn api.main:app
 
-John, Vietnam, 45, 45, Fun, Love, Ferenheit
+John, Vietnam, 45, 45, Fun, Love, Fahrenheit
 
-Helen, Singapore, 15, 15, Fierce, Regards, Celcius
+Helen, Singapore, 15, 15, Fierce, Regards, Celsius

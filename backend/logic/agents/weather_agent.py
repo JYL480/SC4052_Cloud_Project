@@ -408,7 +408,7 @@ weather_tools = [
     get_worldwide_weather,
 ]
 
-rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules.md'))
+rules_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/rules/rules.md'))
 user_preferences_md = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data/user_preferences/preferences.md'))
 
 
